@@ -1,22 +1,22 @@
 import json
 import os
 import re
-from datetime import datetime, timedelta
-import pytz
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from dotenv import load_dotenv
 
+from booking import Booking
+
 load_dotenv()
 user_name = 'la_guarida_juegos_bot'
 timetable = '*Martes a Sábado* \n 10:30\-14:00 \n 17:00\-20:30 \n *Domingo* \n 10:30\-14:00 \n 17:00\-20:30 \n *Lunes CERRADO*'
 contact = '*Teléfono* 911825459 \n *Web* https://www\.laguaridajuegos\.com/'
 token = os.getenv('BOT_TOKEN')
-
+booking = Booking
 async def start(update: Update, context: ContextTypes):
-    start_text = "Hola! Soy el bot de La Guarida. Escribe el comando /info para ver todo lo que puedo hacer 😁"
+    start_text = "Hola! Soy el bot de La Guarida. \n Escribe el comando /info para ver todo lo que puedo hacer 😁"
     await update.message.reply_text(f"{start_text}")
 
 
@@ -38,33 +38,43 @@ async def info(update: Update, context: ContextTypes):
 
 async def button(update: Update, context: ContextTypes):
     query = update.callback_query
-
     await query.answer()
-    if json.loads(query.data)['name'] == 'timetable':
+
+    data = json.loads(query.data)
+    if data['name'] == 'timetable':
         await query.edit_message_text(text=f"{timetable}", parse_mode=ParseMode.MARKDOWN_V2)
-    elif json.loads(query.data)['name'] == 'contact':
+
+    elif data['name'] == 'contact':
         await query.edit_message_text(text=f"{contact}", parse_mode=ParseMode.MARKDOWN_V2)
-    elif json.loads(query.data)['name'] == 'booking':
-        await query.edit_message_text(text='reserva')
+
+    elif data['name'] == 'booking':
+        booking.booking_status = True
+        reply_markup = InlineKeyboardMarkup(booking.next_dates_buttons(self=Booking))
+        await query.edit_message_text('¿En que fecha quieres la reserva?', reply_markup=reply_markup)
+
+    elif data['name'] == "date":
+        reply_markup = InlineKeyboardMarkup(booking.day_turns_buttons(booking, data['data']))
+
+        await query.edit_message_text('¿En que horario?', reply_markup=reply_markup)
+    elif data['name'] == 'people':
+        booking.time = data['data']
+        await query.edit_message_text('¿Cuantas personas?')
 
 
 def handle_response(text: str, context: ContextTypes, update: Update):
+    print('TEXT', text)
+    if re.search(r'\d|\d{2}', text) and booking.booking_status is True:
+        # reservar
+        booking.people = text
+        booking.booking_status = False
+        return 'Reserva realizada el ' + booking.date + ' por la ' + booking.time + ' para ' + booking.people + ' a nombre de ' + update.message.chat.username + ' ✅'
+    else:
         return 'No te he entendido'
 
 
 async def handle_message(update: Update, context: ContextTypes):
-    message_type = update.message.chat.type
     text = update.message.text
-
-    if message_type == 'group':
-        if text.startswith(user_name):
-            new_text = text.replace(user_name, '')
-            response = handle_response(new_text, context, update)
-        else:
-            return
-    else:
-        response = handle_response(text, context, update)
-
+    response = handle_response(text, context, update)
     await update.message.reply_text(response)
 
 
